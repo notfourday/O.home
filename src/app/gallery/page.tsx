@@ -1,9 +1,10 @@
 'use client';
 // EditableDesc 주입
 // 그림백업게시판 (4.11) — 갤러리/리스트 토글 · 로그/단일 뱃지 · 접기 썸네일 블러
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import { useSectionParam, filterSection, sectionSetter, secQuery } from '@/lib/sectionStore';
 import { useLocalList, fmtDate } from '@/lib/postStore';
 import { BackupPost, BACKUP_SEED } from '@/lib/galleryStore';
 import { SearchBar } from '@/components/ui/Kit';
@@ -16,11 +17,16 @@ import { useMenuSettings } from '@/lib/menuStore';
 
 const FOLD_LABEL = { spoiler: '스포일러', adult: '수위 주의' };
 
-export default function BackupPage() {
+function BackupPageInner() {
   const router = useRouter();
   const { user, isAdmin } = useAuth();
   const { editOn } = useMainStore();
-  const [posts, setPosts] = useLocalList<BackupPost>('ohome.backup.v1', BACKUP_SEED);
+  const [postsAll, setPostsAll] = useLocalList<BackupPost>('ohome.backup.v1', BACKUP_SEED);
+  // 여러 개로 만든 섹션 (v2.0) — 주소의 ?s= 가 가리키는 것만 보여 준다
+  const sec = useSectionParam('gallery');
+  const posts = filterSection(postsAll, sec.id);
+  // 저장은 이 섹션 자리만 교체 — 걸러진 목록을 그대로 넘겨도 다른 섹션이 지워지지 않는다
+  const setPosts = sectionSetter(postsAll, sec.id, setPostsAll);
   // 기본 보기 — 환경설정 > 메뉴 관리의 갤러리 항목에서 지정 (5.2)
   const [menuSet, , menuLoaded] = useMenuSettings();
   const [view, setView] = useState<'gal' | 'list'>('gal');
@@ -47,7 +53,7 @@ export default function BackupPage() {
   return (
     <section className="page">
       <div className="page-head">
-        <PageTitle>GALLERY</PageTitle>
+        <PageTitle>{sec.id === 'main' ? 'GALLERY' : sec.name}</PageTitle>
         <EditableDesc k="backup-desc" def="로그형(웹툰 스크롤) / 단일형(좌우 넘김) · 리스트/갤러리 보기 전환" />
       </div>
       <div className="toolrow">
@@ -57,7 +63,7 @@ export default function BackupPage() {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <SearchBar onSearch={setQ} />
-          {user && <button className="btn btn-dark" onClick={() => router.push('/backup/write')}>✎ WRITE</button>}
+          {user && <button className="btn btn-dark" onClick={() => router.push('/gallery/write' + secQuery(sec.id))}>✎ WRITE</button>}
         </div>
       </div>
 
@@ -68,7 +74,7 @@ export default function BackupPage() {
             const folded = p.fold && !unveiled[p.id];
             return (
               <div key={p.id} className="panel g-item" {...sort(i)}
-                onClick={() => { if (!folded && !editOn) router.push(`/backup/${p.id}`); }}>
+                onClick={() => { if (!folded && !editOn) router.push(`/gallery/${p.id}`); }}>
                 <div className={`thumb ${folded ? 'veil' : ''}`}>
                   <div style={{ position: 'absolute', inset: 0 }}>
                     <CroppedBlobImg fileRef={p.images[0]} crop={p.thumbCrop} ph={p.phList[0] ?? 'cool'} />
@@ -95,7 +101,7 @@ export default function BackupPage() {
       {/* 게시물이 없으면 컨테이너 자체를 숨김 — 빈 패널이 안내문 위에 카드처럼 남던 버그 (v1.9 사용자 발견) */}
       <div className="panel flush" style={{ display: view === 'list' && visible.length > 0 ? undefined : 'none' }}>
           {visible.map(p => (
-            <div key={p.id} className="list-item" onClick={() => router.push(`/backup/${p.id}`)}>
+            <div key={p.id} className="list-item" onClick={() => router.push(`/gallery/${p.id}`)}>
               <div className="th" style={{ position: 'relative' }}><CroppedBlobImg fileRef={p.images[0]} crop={p.thumbCrop} ph={p.phList[0] ?? 'cool'} /></div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <b>
@@ -117,4 +123,9 @@ export default function BackupPage() {
       )}
     </section>
   );
+}
+
+/** ?s= 를 읽으므로 Suspense 경계가 필요하다 (Next App Router) */
+export default function BackupPage() {
+  return <Suspense fallback={<section className="page" />}><BackupPageInner /></Suspense>;
 }
